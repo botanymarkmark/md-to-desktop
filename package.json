@@ -1,0 +1,47 @@
+{
+  "name": "md-to-desktop",
+  "version": "1.0.0",
+  "description": "MD-To Desktop —— 18 个 Markdown 转换工具的本地桌面版：Markdown 转 PDF / Word / HTML / 图片 / LaTeX / RST / Confluence / Excel，以及表格、PDF、Word 互相转换",
+  "main": "main.js",
+  "author": "Mark",
+  "contributors": [
+    "DeepSeek",
+    "WorkBuddy"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/botanymarkmark/md-to-desktop.git"
+  },
+  "homepage": "https://github.com/botanymarkmark/md-to-desktop#readme",
+  "bugs": {
+    "url": "https://github.com/botanymarkmark/md-to-desktop/issues"
+  },
+  "keywords": [
+    "markdown",
+    "markdown-to-pdf",
+    "markdown-to-docx",
+    "converter",
+    "electron",
+    "desktop"
+  ],
+  "scripts": {
+    "start": "electron .",
+    "build:portable": "node build-portable.js",
+    "test": "electron test/smoke.js"
+  },
+  "dependencies": {
+    "docx": "^8.5.0",
+    "highlight.js": "^11.9.0",
+    "mammoth": "^1.6.0",
+    "markdown-it": "^13.0.2",
+    "papaparse": "^5.4.1",
+    "pdfjs-dist": "^3.11.174",
+    "turndown": "^7.1.2",
+    "turndown-plugin-gfm": "^1.0.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3"
+  }
+}

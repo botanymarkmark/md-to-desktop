@@ -1,0 +1,22 @@
+# 依赖
+node_modules/
+
+# 打包产物（体积过大，用 build-portable.js 本地生成）
+dist/
+
+# 自检生成的示例文件
+test/out/
+
+# 构建日志
+build-out.txt
+build-err.txt
+build-rc.txt
+*.log
+
+# 开发时的临时测试页
+renderer/_uitest*
+test/ui.png
+
+# 系统
+.DS_Store
+Thumbs.db

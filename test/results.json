@@ -1,0 +1,117 @@
+{
+  "summary": {
+    "total": 18,
+    "passed": 18,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "markdown 渲染",
+      "pass": true,
+      "ms": 27,
+      "info": "2485 字节"
+    },
+    {
+      "name": "目录生成",
+      "pass": true,
+      "ms": 2,
+      "info": "433 字节"
+    },
+    {
+      "name": "LaTeX 转换",
+      "pass": true,
+      "ms": 7,
+      "info": "1227 字符"
+    },
+    {
+      "name": "RST 转换",
+      "pass": true,
+      "ms": 5,
+      "info": "1043 字符"
+    },
+    {
+      "name": "Confluence 转换",
+      "pass": true,
+      "ms": 3,
+      "info": "754 字符"
+    },
+    {
+      "name": "纯文本转换",
+      "pass": true,
+      "ms": 4,
+      "info": "770 字符"
+    },
+    {
+      "name": "Markdown 表格 → CSV",
+      "pass": true,
+      "ms": 3,
+      "info": "5 行"
+    },
+    {
+      "name": "CSV → Markdown 表格",
+      "pass": true,
+      "ms": 2,
+      "info": "8 行"
+    },
+    {
+      "name": "JSON → Markdown 表格",
+      "pass": true,
+      "ms": 1,
+      "info": "7 行"
+    },
+    {
+      "name": "HTML → Markdown",
+      "pass": true,
+      "ms": 3,
+      "info": "17 行"
+    },
+    {
+      "name": "Markdown → Excel",
+      "pass": true,
+      "ms": 204,
+      "info": "16601 字节"
+    },
+    {
+      "name": "Markdown → Word",
+      "pass": true,
+      "ms": 218,
+      "info": "10502 字节"
+    },
+    {
+      "name": "Markdown → PDF",
+      "pass": true,
+      "ms": 671,
+      "info": "408166 字节"
+    },
+    {
+      "name": "Markdown → 图片",
+      "pass": true,
+      "ms": 1154,
+      "info": "1519×1571 · 170806 字节"
+    },
+    {
+      "name": "PDF → Markdown",
+      "pass": true,
+      "ms": 645,
+      "info": "2 页 → 685 字符"
+    },
+    {
+      "name": "Word → Markdown",
+      "pass": true,
+      "ms": 3039,
+      "info": "731 字符"
+    },
+    {
+      "name": "模板系统",
+      "pass": true,
+      "ms": 2,
+      "info": "23 套模板"
+    },
+    {
+      "name": "工具定义完整性",
+      "pass": true,
+      "ms": 1,
+      "info": "18 个工具"
+    }
+  ]
+}

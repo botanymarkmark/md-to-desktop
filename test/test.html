@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>MD-To self test</title></head>
+<body>
+<script>
+const fs = require('fs');
+const path = require('path');
+const { ipcRenderer } = require('electron');
+const Theme = require('../renderer/js/theme');
+const MD = require('../renderer/js/markdown');
+const CV = require('../renderer/js/converters');
+const DEFS = require('../renderer/js/tools');
+
+const OUT = path.join(__dirname, 'out');
+const SAMPLE = DEFS.tools.find(t => t.id === 'pdf').sample;
+const TABLE = DEFS.tools.find(t => t.id === 'table-csv').sample;
+const CSV = DEFS.tools.find(t => t.id === 'csv-to-md').sample;
+const JSONS = DEFS.tools.find(t => t.id === 'json-to-md').sample;
+const HTMLS = DEFS.tools.find(t => t.id === 'html-to-md').sample;
+
+const results = [];
+const PROG = path.join(__dirname, 'progress.log');
+try { fs.unlinkSync(PROG); } catch (e) {}
+function prog(s) { try { fs.appendFileSync(PROG, s + '\n'); } catch (e) {} }
+prog('modules loaded');
+function ok(name, cond, info) {
+  results.push({ name, pass: !!cond, info: info || '' });
+}
+async function test(name, fn) {
+  const t0 = Date.now();
+  prog('> ' + name);
+  try {
+    const info = await fn();
+    results.push({ name, pass: true, ms: Date.now() - t0, info: info || '' });
+    prog('  ok ' + name + ' :: ' + (info || ''));
+  } catch (err) {
+    const msg = String(err && err.message || err);
+    results.push({ name, pass: false, ms: Date.now() - t0, info: msg });
+    prog('  FAIL ' + name + ' :: ' + msg);
+  }
+}
+function write(name, data) {
+  fs.writeFileSync(path.join(OUT, name), data);
+  return fs.statSync(path.join(OUT, name)).size;
+}
+
+window.__RUN_TESTS__ = async function () {
+  // 1 渲染
+  await test('markdown 渲染', () => {
+    const html = MD.renderMarkdown(SAMPLE);
+    if (!/<h1[^>]*>/.test(html)) throw new Error('缺少 h1');
+    if (!/<table>/.test(html)) throw new Error('缺少表格');
+    if (!/hljs/.test(html)) throw new Error('缺少代码高亮');
+    if (!/<input type="checkbox"/.test(html)) throw new Error('缺少任务列表');
+    return html.length + ' 字节';
+  });
+
+  await test('目录生成', () => {
+    const toc = MD.buildToc(SAMPLE);
+    if (!toc.includes('toc-l1')) throw new Error('目录结构错误');
+    if (!/href="#/.test(toc)) throw new Error('缺少锚点');
+    return toc.length + ' 字节';
+  });
+
+  await test('LaTeX 转换', () => {
+    const tex = MD.htmlToLatex(MD.mdToDom(SAMPLE), { topLevel: 'section', codeEnv: 'lstlisting' });
+    for (const k of ['\\section', '\\begin{itemize}', '\\begin{table}', '\\begin{lstlisting}', '\\textbf{']) {
+      if (!tex.includes(k)) throw new Error('缺少 ' + k);
+    }
+    write('doc.tex', tex);
+    return tex.length + ' 字符';
+  });
+
+  await test('RST 转换', () => {
+    const rst = MD.htmlToRst(MD.mdToDom(SAMPLE));
+    for (const k of ['====', 'code-block::', '----']) {
+      if (!rst.includes(k)) throw new Error('缺少 ' + k);
+    }
+    write('doc.rst', rst);
+    return rst.length + ' 字符';
+  });
+
+  await test('Confluence 转换', () => {
+    const wiki = MD.htmlToConfluence(MD.mdToDom(SAMPLE), { cnfCode: true, cnfTable: true });
+    for (const k of ['h1. ', '{code', '||']) {
+      if (!wiki.includes(k)) throw new Error('缺少 ' + k);
+    }
+    return wiki.length + ' 字符';
+  });
+
+  await test('纯文本转换', () => {
+    const txt = MD.htmlToPlainText(MD.mdToDom(SAMPLE), { headingStyle: 'plain', keepUrls: false });
+    if (txt.includes('**')) throw new Error('残留粗体标记');
+    if (!txt.includes('Markdown 转换器')) throw new Error('正文丢失');
+    write('doc.txt', txt);
+    return txt.length + ' 字符';
+  });
+
+  await test('Markdown 表格 → CSV', () => {
+    const csv = CV.mdToCsv(TABLE, { delimiter: ',', quoteAll: false });
+    if (!/Q1 2024/.test(csv)) throw new Error('数据丢失');
+    if (csv.split('\n').length < 4) throw new Error('行数不足');
+    write('doc.csv', csv);
+    return csv.split('\n').length + ' 行';
+  });
+
+  await test('CSV → Markdown 表格', () => {
+    const md = CV.csvToMdTable(CSV, { align: 'left' });
+    if (!/\|\s*姓名\s*\|/.test(md)) throw new Error('表头不对: ' + md.slice(0, 80));
+    if (!md.includes('张伟')) throw new Error('数据丢失');
+    return md.split('\n').length + ' 行';
+  });
+
+  await test('JSON → Markdown 表格', () => {
+    const md = CV.jsonToMdTable(JSONS, { nested: 'flatten', align: 'left' });
+    if (!md.includes('Markdown')) throw new Error('数据丢失');
+    if (!/\|\s*name\s*\|/.test(md)) throw new Error('缺少 name 列');
+    return md.split('\n').length + ' 行';
+  });
+
+  await test('HTML → Markdown', () => {
+    const md = CV.htmlToMarkdown(HTMLS, { headingStyle: 'atx', keepTags: [] });
+    if (!md.includes('# 网页转 Markdown')) throw new Error('标题丢失: ' + md.slice(0, 60));
+    if (!md.includes('**HTML**')) throw new Error('粗体丢失');
+    if (!md.includes('| 标签 |')) throw new Error('表格丢失');
+    return md.split('\n').length + ' 行';
+  });
+
+  await test('Markdown → Excel', async () => {
+    const tables = CV.mdTables(SAMPLE);
+    if (tables.length !== 1) throw new Error('表格数量 ' + tables.length);
+    prog('  invoking excel:build');
+    const r = await ipcRenderer.invoke('excel:build', {
+      tables: CV.tablesForExcel(tables),
+      opts: { freezeHeader: true }
+    });
+    prog('  excel:build returned');
+    if (!r.ok) throw new Error(r.error);
+    const size = write('doc.xlsx', Buffer.from(r.base64, 'base64'));
+    if (size < 3000) throw new Error('文件过小 ' + size);
+    return size + ' 字节';
+  });
+
+  await test('Markdown → Word', async () => {
+    const theme = Theme.resolveTheme('classic', {}, 'standard');
+    const r = await ipcRenderer.invoke('docx:build', {
+      markdown: SAMPLE,
+      opts: {
+        theme, pageSize: 'A4', margins: { top: 22, right: 22, bottom: 22, left: 22 },
+        toc: true, pageNumbers: true, title: 'test'
+      }
+    });
+    if (!r.ok) throw new Error(r.error);
+    const buf = Buffer.from(r.base64, 'base64');
+    const size = write('doc.docx', buf);
+    if (size < 8000) throw new Error('文件过小 ' + size);
+    if (buf.slice(0, 2).toString() !== 'PK') throw new Error('不是合法 docx');
+    return size + ' 字节';
+  });
+
+  await test('Markdown → PDF', async () => {
+    const theme = Theme.resolveTheme('classic', {}, 'standard');
+    const html = Theme.buildDocument({
+      bodyHtml: MD.renderMarkdown(SAMPLE),
+      theme, mode: 'pdf', pageSize: 'A4',
+      toc: MD.buildToc(SAMPLE), pageWidth: 794, forReady: true
+    });
+    write('doc.html', html);
+    const r = await ipcRenderer.invoke('render:pdf', {
+      html, pageSize: 'A4', pageNumbers: true,
+      marginTop: 22, marginRight: 22, marginBottom: 22, marginLeft: 22
+    });
+    if (!r.ok) throw new Error(r.error);
+    const buf = Buffer.from(r.base64, 'base64');
+    if (buf.slice(0, 4).toString() !== '%PDF') throw new Error('不是合法 PDF');
+    const size = write('sample.pdf', buf);
+    if (size < 20000) throw new Error('PDF 过小 ' + size + ' 字节，可能排版失败');
+    window.__PDF_B64__ = r.base64;
+    return size + ' 字节';
+  });
+
+  await test('Markdown → 图片', async () => {
+    const theme = Theme.resolveTheme('github', {}, 'standard');
+    const html = Theme.buildDocument({
+      bodyHtml: MD.renderMarkdown(SAMPLE),
+      theme, mode: 'image', imageWidth: 900,
+      margins: { top: 36, right: 40, bottom: 36, left: 40 }, forReady: true
+    });
+    const r = await ipcRenderer.invoke('render:image', { html, width: 900, scale: 2, format: 'png' });
+    if (!r.ok) throw new Error(r.error);
+    const buf = Buffer.from(r.base64, 'base64');
+    if (buf.slice(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('不是合法 PNG');
+    const size = write('sample.png', buf);
+    if (r.height < 600) throw new Error('高度异常 ' + r.height);
+    return `${r.width}×${r.height} · ${size} 字节`;
+  });
+
+  await test('PDF → Markdown', async () => {
+    if (!window.__PDF_B64__) throw new Error('没有可用的 PDF');
+    const r = await ipcRenderer.invoke('pdf:extract', { base64: window.__PDF_B64__ });
+    if (!r.ok) throw new Error(r.error);
+    if (!r.pages.length) throw new Error('没有解析出页面');
+    const md = CV.pdfToMarkdown(r.pages, { dehyphenate: true, joinWith: 'space' });
+    write('from-pdf.md', md);
+    if (!md.includes('Markdown 转换器')) throw new Error('正文丢失 "' + md.slice(0, 120) + '"');
+    return `${r.numPages} 页 → ${md.length} 字符`;
+  });
+
+  await test('Word → Markdown', async () => {
+    const buf = fs.readFileSync(path.join(OUT, 'doc.docx'));
+    const r = await CV.docxToMarkdown(buf.toString('base64'), { headingStyle: 'atx' });
+    write('from-docx.md', r.markdown);
+    if (!r.markdown.includes('Markdown 转换器')) throw new Error('正文丢失: ' + r.markdown.slice(0, 80));
+    if (!r.markdown.includes('格式')) throw new Error('表格丢失: ' + r.markdown.slice(0, 200));
+    return r.markdown.length + ' 字符';
+  });
+
+  await test('模板系统', () => {
+    if (Theme.PRESETS.length < 20) throw new Error('模板数量不足: ' + Theme.PRESETS.length);
+    const t = Theme.resolveTheme('midnight', { colors: { heading: '#ff0000' } }, 'compact');
+    if (t.colors.heading !== '#ff0000') throw new Error('覆盖失败');
+    if (t.spacing.lineHeight >= 1.74) throw new Error('密度未生效');
+    const css = Theme.buildDocCSS(t, { pageWidth: 794 });
+    if (!css.includes('h1{font-size')) throw new Error('CSS 缺失');
+    return Theme.PRESETS.length + ' 套模板';
+  });
+
+  await test('工具定义完整性', () => {
+    const ids = DEFS.tools.map(t => t.id);
+    if (new Set(ids).size !== ids.length) throw new Error('工具 id 重复');
+    if (DEFS.tools.length !== 18) throw new Error('工具数量 ' + DEFS.tools.length);
+    DEFS.tools.forEach(t => {
+      if (!t.name || !t.badge || !t.kind || !t.primary) throw new Error('字段缺失: ' + t.id);
+      if (!Array.isArray(t.options)) throw new Error('options 缺失: ' + t.id);
+      t.options.forEach(o => {
+        if (!o.id || !o.type || !o.label) throw new Error(`选项字段缺失 ${t.id}.${o.id}`);
+      });
+    });
+    return DEFS.tools.length + ' 个工具';
+  });
+
+  const passed = results.filter(r => r.pass).length;
+  const payload = {
+    summary: { total: results.length, passed, failed: results.length - passed },
+    results
+  };
+  prog('DONE ' + JSON.stringify(payload.summary));
+  try { ipcRenderer.send('test:done', payload); } catch (e) { prog('send err ' + e.message); }
+  return payload;
+};
+
+window.addEventListener('load', () => {
+  prog('window load');
+  window.__RUN_TESTS__().catch((e) => prog('RUN ERROR ' + (e && e.stack || e)));
+});
+</script>
+</body>
+</html>
