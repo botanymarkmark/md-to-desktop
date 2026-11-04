@@ -26,6 +26,26 @@ let mainWindow = null;
 const tmpFiles = new Set();
 
 /* ------------------------------------------------------------------ */
+/* 启动日志：任何“双击没反应”都能在这里查到原因                        */
+/* ------------------------------------------------------------------ */
+
+let logPath = null;
+function initLog() {
+  try {
+    logPath = path.join(app.getPath('userData'), 'main.log');
+    const stat = fs.existsSync(logPath) ? fs.statSync(logPath) : null;
+    if (stat && stat.size > 256 * 1024) fs.writeFileSync(logPath, '');
+  } catch (_) { logPath = null; }
+}
+
+function log() {
+  const line = '[' + new Date().toISOString().replace('T', ' ').slice(0, 19) + '] ' +
+    Array.from(arguments).join(' ');
+  try { if (logPath) fs.appendFileSync(logPath, line + '\n'); } catch (_) {}
+  try { console.log(line); } catch (_) {}
+}
+
+/* ------------------------------------------------------------------ */
 /* 窗口                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -35,13 +55,16 @@ function createWindow() {
   const w = Math.max(960, Math.min(1560, Math.round(area.width * 0.92)));
   const h = Math.max(640, Math.min(1000, Math.round(area.height * 0.92)));
 
+  log('createWindow', w + 'x' + h);
+
   mainWindow = new BrowserWindow({
     width: w,
     height: h,
     minWidth: 1000,
     minHeight: 640,
     backgroundColor: '#0e1014',
-    show: false,
+    show: true,              // 立即显示：不再依赖 ready-to-show，避免白屏/不出现
+    center: true,
     title: 'MD-To Desktop',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     titleBarStyle: 'hidden',
@@ -55,26 +78,75 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  const wc = mainWindow.webContents;
+
   mainWindow.once('ready-to-show', () => {
+    log('ready-to-show');
+    if (!mainWindow.isVisible()) mainWindow.show();
+  });
+
+  /* 兜底：无论渲染层发生什么，3 秒后窗口一定在屏幕上 */
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      log('force show (就绪信号未到)');
+      mainWindow.show();
+    }
+  }, 3000);
+
+  let loaded = false;
+  wc.on('did-finish-load', () => { loaded = true; log('did-finish-load'); });
+
+  /* 15 秒还没加载完，直接把原因显示在窗口里，而不是干等 */
+  setTimeout(() => {
+    if (loaded || !mainWindow || mainWindow.isDestroyed()) return;
+    log('页面 15 秒未加载完成');
+    wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+      '<body style="background:#0e1014;color:#e6edf3;font:14px/1.7 Segoe UI,Microsoft YaHei;padding:48px">' +
+      '<h2 style="color:#ffcc66">界面加载超时</h2>' +
+      '<p>程序已启动，但预览界面 15 秒内没有加载完成。</p>' +
+      '<p style="color:#8b949e">日志：' + (logPath || '') + '</p>' +
+      '<p style="color:#8b949e">可以尝试：关闭后重新打开；或把日志发给开发者。</p></body>'));
+  }, 15000);
+
+  wc.on('did-fail-load', (_e, code, desc, url) => {
+    log('did-fail-load', code, desc, url);
+    if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.show();
-    if (process.env.MDTO_SHOT) {
-      setTimeout(async () => {
-        try {
-          const img = await mainWindow.webContents.capturePage();
-          const out = process.env.MDTO_SHOT_OUT ||
-            path.join(__dirname, 'test', 'ui.png');
-          fs.mkdirSync(path.dirname(out), { recursive: true });
-          fs.writeFileSync(out, img.toPNG());
-          console.log('shot saved', out);
-        } catch (e) {
-          console.log('shot error', e.message);
-        }
-        app.exit(0);
-      }, Number(process.env.MDTO_SHOT) || 3000);
+    wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+      '<body style="background:#0e1014;color:#e6edf3;font:14px/1.7 Segoe UI,Microsoft YaHei;padding:48px">' +
+      '<h2 style="color:#ff8080">界面加载失败</h2><p>' + code + ' ' + desc + '</p>' +
+      '<p style="color:#8b949e">' + String(url || '') + '</p>' +
+      '<p style="color:#8b949e">日志：' + (logPath || '') + '</p></body>'));
+  });
+  wc.on('render-process-gone', (_e, d) => {
+    log('render-process-gone', JSON.stringify(d));
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showErrorBox('界面进程异常退出',
+        '原因：' + (d && d.reason) + '\n日志：' + (logPath || ''));
+      mainWindow.reload();
     }
   });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  wc.on('preload-error', (_e, p, err) => log('preload-error', p, String(err && err.message || err)));
+
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.on('closed', () => { log('window closed'); mainWindow = null; });
+
+  /* 开发用：MDTO_SHOT=毫秒 自动截图后退出 */
+  if (process.env.MDTO_SHOT) {
+    setTimeout(async () => {
+      try {
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error('窗口已关闭');
+        const img = await mainWindow.webContents.capturePage();
+        const out = process.env.MDTO_SHOT_OUT || path.join(__dirname, 'test', 'ui.png');
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        fs.writeFileSync(out, img.toPNG());
+        log('shot saved', out);
+      } catch (e) {
+        log('shot error', e.message);
+      }
+      app.exit(0);
+    }, Number(process.env.MDTO_SHOT) || 3000);
+  }
 
   // 外部链接用系统浏览器打开，不在应用内导航
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -509,26 +581,55 @@ ipcMain.handle('app:info', async () => ({
 /* ------------------------------------------------------------------ */
 
 function boot() {
+  initLog();
+  log('--- 启动', app.getVersion(), process.platform, process.arch,
+    'electron', process.versions.electron, 'args:', process.argv.slice(1).join(' ') || '(none)');
+
+  process.on('uncaughtException', (err) => {
+    log('uncaughtException', String(err && err.stack || err));
+    try { dialog.showErrorBox('MD-To Desktop 出错', String(err && err.message || err) + '\n\n日志：' + logPath); } catch (_) {}
+  });
+  process.on('unhandledRejection', (err) => {
+    log('unhandledRejection', String(err && err.stack || err));
+  });
+
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
+    log('已有实例在运行，本次启动退出');
     app.quit();
     return;
   }
 
   app.on('second-instance', () => {
-    if (mainWindow) {
+    log('second-instance');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) mainWindow.show();   // 之前若卡在隐藏状态，这里救回来
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.setAlwaysOnTop(true);
       mainWindow.focus();
+      mainWindow.setAlwaysOnTop(false);
     }
   });
 
   app.whenReady().then(() => {
-    createWindow();
-    buildMenu();
+    log('app ready');
+    try {
+      createWindow();
+      buildMenu();
+    } catch (err) {
+      log('createWindow failed', String(err && err.stack || err));
+      try {
+        dialog.showErrorBox('启动失败', String(err && err.message || err) + '\n\n日志：' + logPath);
+      } catch (_) {}
+      app.quit();
+      return;
+    }
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  });
+  }).catch((err) => log('whenReady failed', String(err && err.stack || err)));
+
+  app.on('child-process-gone', (_e, details) => log('child-process-gone', JSON.stringify(details)));
 
   app.on('window-all-closed', () => {
     cleanupTmp();

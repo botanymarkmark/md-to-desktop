@@ -52,6 +52,15 @@ npm start
 node build-portable.js
 ```
 
+### 启动没反应？
+
+程序会在 `%APPDATA%\md-to-desktop\main.log` 记启动日志。窗口会立刻出现（不等页面加载完），
+如果界面本身出错，窗口里会直接显示错误原因和日志路径。
+仍无反应时打开那个日志，最后一行就是卡在哪一步。
+
+常见的两个原因：杀毒软件拦截了 exe；或者已经有一个实例在后台运行（此时再双击不会开新窗口，
+只会把原窗口调到前面）。
+
 ## 模板与排版
 
 22 套内置模板（Classic、Modern、Ocean Blue、GitHub、Dracula、Midnight…），可调：
